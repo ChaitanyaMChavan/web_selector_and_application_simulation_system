@@ -393,6 +393,104 @@ router.post('/:id/steps', authenticate, authorize('AUTHOR', 'ADMIN'), async (req
   }
 });
 
+// PATCH /api/simulations/:id/steps/:stepId - Update step
+router.patch('/:id/steps/:stepId', authenticate, authorize('AUTHOR', 'ADMIN'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { id: simulationId, stepId } = req.params;
+    const body = req.body;
+
+    // Check ownership
+    const simResult = await query(
+      'SELECT author_id FROM projectweb.simulations WHERE id = $1',
+      [simulationId]
+    );
+
+    if (simResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Simulation not found' });
+    }
+
+    if (simResult.rows[0].author_id !== user.userId && user.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    // Check if step exists
+    const stepResult = await query(
+      'SELECT id FROM projectweb.steps WHERE id = $1 AND simulation_id = $2',
+      [stepId, simulationId]
+    );
+
+    if (stepResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Step not found' });
+    }
+
+    // Build update query dynamically
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (body.type !== undefined) {
+      if (!['MCQ', 'WRITTEN', 'VIDEO', 'CODING'].includes(body.type)) {
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors: [{ field: 'type', message: 'Type must be MCQ, WRITTEN, VIDEO, or CODING' }],
+        });
+      }
+      updates.push(`type = $${paramIndex++}`);
+      values.push(body.type);
+    }
+
+    if (body.prompt !== undefined) {
+      updates.push(`prompt = $${paramIndex++}`);
+      values.push(body.prompt);
+    }
+
+    if (body.order !== undefined) {
+      updates.push(`"order" = $${paramIndex++}`);
+      values.push(body.order);
+    }
+
+    if (body.options !== undefined) {
+      if (body.type === 'MCQ' && (!Array.isArray(body.options) || body.options.length === 0)) {
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors: [{ field: 'options', message: 'Options array is required for MCQ type' }],
+        });
+      }
+      updates.push(`options = $${paramIndex++}`);
+      values.push(body.type === 'MCQ' ? JSON.stringify(body.options) : null);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ message: 'No fields to update' });
+    }
+
+    values.push(stepId);
+    const result = await query(
+      `UPDATE projectweb.steps 
+       SET ${updates.join(', ')}
+       WHERE id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+
+    const step = result.rows[0];
+
+    return res.json({
+      id: step.id,
+      simulationId: step.simulation_id,
+      order: step.order,
+      type: step.type,
+      prompt: step.prompt,
+      options: step.options,
+      createdAt: step.created_at,
+    });
+  } catch (error: any) {
+    console.error('Update step error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // DELETE /api/simulations/:id/steps/:stepId - Delete step
 router.delete('/:id/steps/:stepId', authenticate, authorize('AUTHOR', 'ADMIN'), async (req, res) => {
   try {
@@ -428,6 +526,93 @@ router.delete('/:id/steps/:stepId', authenticate, authorize('AUTHOR', 'ADMIN'), 
     return res.json({ message: 'Step deleted successfully' });
   } catch (error: any) {
     console.error('Delete step error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PATCH /api/simulations/:id/steps/reorder - Reorder steps
+router.patch('/:id/steps/reorder', authenticate, authorize('AUTHOR', 'ADMIN'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { id: simulationId } = req.params;
+    const { steps } = req.body;
+
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: [{ field: 'steps', message: 'Steps array is required' }],
+      });
+    }
+
+    // Check ownership
+    const simResult = await query(
+      'SELECT author_id FROM projectweb.simulations WHERE id = $1',
+      [simulationId]
+    );
+
+    if (simResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Simulation not found' });
+    }
+
+    if (simResult.rows[0].author_id !== user.userId && user.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    // Validate all step IDs belong to this simulation
+    const stepIds = steps.map((s: any) => s.id);
+    const stepCheck = await query(
+      'SELECT id FROM projectweb.steps WHERE id = ANY($1) AND simulation_id = $2',
+      [stepIds, simulationId]
+    );
+
+    if (stepCheck.rows.length !== stepIds.length) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: [{ field: 'steps', message: 'Some step IDs are invalid or do not belong to this simulation' }],
+      });
+    }
+
+    // Update step orders in a transaction
+    const { getClient } = require('../config/database');
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+
+      for (const step of steps) {
+        await client.query(
+          'UPDATE projectweb.steps SET "order" = $1 WHERE id = $2',
+          [step.order, step.id]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      // Return updated steps
+      const result = await query(
+        `SELECT id, "order", type, prompt, options
+         FROM projectweb.steps
+         WHERE simulation_id = $1
+         ORDER BY "order" ASC`,
+        [simulationId]
+      );
+
+      return res.json({
+        steps: result.rows.map(step => ({
+          id: step.id,
+          order: step.order,
+          type: step.type,
+          prompt: step.prompt,
+          options: step.options,
+        })),
+      });
+    } catch (error: any) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('Reorder steps error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 });

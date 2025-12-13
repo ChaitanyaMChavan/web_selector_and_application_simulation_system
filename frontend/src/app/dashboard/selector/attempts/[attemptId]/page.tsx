@@ -26,12 +26,22 @@ import api from "@/lib/axios";
 import Link from "next/link";
 import { formatDateTime } from "@/lib/utils";
 
+interface Rubric {
+  id: string;
+  stepId: string;
+  criterionName: string;
+  description: string | null;
+  maxScore: number;
+  order: number;
+}
+
 interface Step {
   id: string;
   order: number;
   type: "MCQ" | "WRITTEN" | "VIDEO" | "CODING";
   prompt: string;
   options?: string[];
+  rubrics?: Rubric[];
 }
 
 interface Response {
@@ -77,17 +87,28 @@ export default function ScoreAttemptPage() {
   const [saving, setSaving] = useState(false);
   const [score, setScore] = useState<number | "">("");
   const [feedback, setFeedback] = useState("");
+  const [rubricScores, setRubricScores] = useState<Map<string, { score: number | ""; comment: string }>>(new Map());
+  const [existingScores, setExistingScores] = useState<Record<string, { score: number; comment: string }>>({});
 
   useEffect(() => {
     const loadAttempt = async () => {
       try {
-        const response = await api.get<AttemptDetails>(`/scoring/attempt/${params.attemptId}`);
+        const response = await api.get<AttemptDetails & { existingScores?: Record<string, { score: number; comment: string }> }>(`/scoring/attempt/${params.attemptId}`);
         setAttempt(response.data);
         if (response.data.score !== null && response.data.score !== undefined) {
           setScore(response.data.score);
         }
         if (response.data.feedback) {
           setFeedback(response.data.feedback);
+        }
+        // Load existing rubric scores if available
+        if (response.data.existingScores) {
+          setExistingScores(response.data.existingScores);
+          const scoresMap = new Map<string, { score: number | ""; comment: string }>();
+          Object.entries(response.data.existingScores).forEach(([rubricId, data]) => {
+            scoresMap.set(rubricId, { score: data.score, comment: data.comment || "" });
+          });
+          setRubricScores(scoresMap);
         }
       } catch {
         toast({
@@ -104,22 +125,83 @@ export default function ScoreAttemptPage() {
   }, [params.attemptId, router, toast]);
 
 
-  const handleSubmitScore = async () => {
-    if (score === "" || score < 0 || score > 100) {
-      toast({
-        title: "Invalid score",
-        description: "Please enter a score between 0 and 100",
-        variant: "destructive",
+  const calculateTotalScore = () => {
+    let totalMax = 0;
+    let totalEarned = 0;
+    
+    attempt?.simulation.steps.forEach(step => {
+      step.rubrics?.forEach(rubric => {
+        totalMax += rubric.maxScore;
+        const rubricScore = rubricScores.get(rubric.id);
+        if (rubricScore && rubricScore.score !== "") {
+          totalEarned += Number(rubricScore.score);
+        }
       });
-      return;
+    });
+
+    return totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : null;
+  };
+
+  const hasRubrics = () => {
+    return attempt?.simulation.steps.some(step => step.rubrics && step.rubrics.length > 0) || false;
+  };
+
+  const handleSubmitScore = async () => {
+    const hasRubricScoring = hasRubrics();
+    
+    if (hasRubricScoring) {
+      // Validate all rubric scores are filled
+      let allFilled = true;
+      attempt?.simulation.steps.forEach(step => {
+        step.rubrics?.forEach(rubric => {
+          const rubricScore = rubricScores.get(rubric.id);
+          if (!rubricScore || rubricScore.score === "" || Number(rubricScore.score) < 0 || Number(rubricScore.score) > rubric.maxScore) {
+            allFilled = false;
+          }
+        });
+      });
+
+      if (!allFilled) {
+        toast({
+          title: "Incomplete scoring",
+          description: "Please fill in all rubric scores",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      // Simple scoring validation
+      if (score === "" || score < 0 || score > 100) {
+        toast({
+          title: "Invalid score",
+          description: "Please enter a score between 0 and 100",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setSaving(true);
     try {
-      await api.post(`/scoring/attempt/${params.attemptId}`, {
-        score: Number(score),
+      const payload: any = {
         feedback,
-      });
+      };
+
+      if (hasRubricScoring) {
+        // Submit rubric scores
+        const rubricScoresArray = Array.from(rubricScores.entries()).map(([rubricId, data]) => ({
+          rubricId,
+          score: Number(data.score),
+          comment: data.comment || null,
+        }));
+        payload.rubricScores = rubricScoresArray;
+        // Score will be calculated automatically
+      } else {
+        // Simple scoring
+        payload.score = Number(score);
+      }
+
+      await api.post(`/scoring/attempt/${params.attemptId}`, payload);
       toast({
         title: "Score submitted!",
         description: "The attempt has been scored successfully.",
@@ -136,6 +218,12 @@ export default function ScoreAttemptPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const updateRubricScore = (rubricId: string, score: number | "", comment: string) => {
+    const newScores = new Map(rubricScores);
+    newScores.set(rubricId, { score, comment });
+    setRubricScores(newScores);
   };
 
   const getResponseForStep = (stepId: string) => {
@@ -223,28 +311,45 @@ export default function ScoreAttemptPage() {
                 <CardHeader>
                   <CardTitle className="text-lg">Scoring</CardTitle>
                   <CardDescription>
-                    Enter a score and optional feedback
+                    {hasRubrics() 
+                      ? "Score using rubrics below, or enter overall score"
+                      : "Enter a score and optional feedback"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {hasRubrics() && (
+                    <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">Calculated Score:</span>
+                        <span className="text-lg font-bold text-primary">
+                          {calculateTotalScore() !== null ? `${calculateTotalScore()}/100` : "—"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Based on rubric scores below
+                      </p>
+                    </div>
+                  )}
+                  {!hasRubrics() && (
+                    <div className="space-y-2">
+                      <Label htmlFor="score">Score (0-100)</Label>
+                      <Input
+                        id="score"
+                        type="number"
+                        min={0}
+                        max={100}
+                        placeholder="Enter score..."
+                        value={score}
+                        onChange={(e) =>
+                          setScore(
+                            e.target.value === "" ? "" : parseInt(e.target.value)
+                          )
+                        }
+                      />
+                    </div>
+                  )}
                   <div className="space-y-2">
-                    <Label htmlFor="score">Score (0-100)</Label>
-                    <Input
-                      id="score"
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="Enter score..."
-                      value={score}
-                      onChange={(e) =>
-                        setScore(
-                          e.target.value === "" ? "" : parseInt(e.target.value)
-                        )
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="feedback">Feedback (optional)</Label>
+                    <Label htmlFor="feedback">Overall Feedback (optional)</Label>
                     <Textarea
                       id="feedback"
                       placeholder="Enter feedback for the applicant..."
@@ -305,7 +410,7 @@ export default function ScoreAttemptPage() {
                           </div>
                           <p className="font-medium mb-3">{step.prompt}</p>
 
-                          <div className="p-3 rounded-lg bg-card/50 border border-border/50">
+                          <div className="p-3 rounded-lg bg-card/50 border border-border/50 mb-3">
                             <p className="text-sm text-muted-foreground mb-1">
                               Response:
                             </p>
@@ -334,6 +439,83 @@ export default function ScoreAttemptPage() {
                               </p>
                             )}
                           </div>
+
+                          {/* Rubrics Scoring */}
+                          {step.rubrics && step.rubrics.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
+                              <p className="text-sm font-medium text-muted-foreground">
+                                Scoring Rubrics:
+                              </p>
+                              {step.rubrics
+                                .sort((a, b) => a.order - b.order)
+                                .map((rubric) => {
+                                  const rubricScore = rubricScores.get(rubric.id) || { score: "", comment: "" };
+                                  return (
+                                    <div
+                                      key={rubric.id}
+                                      className="p-3 rounded-lg border border-border/50 bg-muted/10"
+                                    >
+                                      <div className="flex items-start justify-between mb-2">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <span className="font-medium text-sm">
+                                              {rubric.criterionName}
+                                            </span>
+                                            <Badge variant="outline" className="text-xs">
+                                              Max: {rubric.maxScore}
+                                            </Badge>
+                                          </div>
+                                          {rubric.description && (
+                                            <p className="text-xs text-muted-foreground">
+                                              {rubric.description}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2 mt-2">
+                                        <div className="flex items-center gap-2">
+                                          <Label className="text-xs w-16">Score:</Label>
+                                          <Input
+                                            type="number"
+                                            min={0}
+                                            max={rubric.maxScore}
+                                            placeholder="0"
+                                            value={rubricScore.score}
+                                            onChange={(e) =>
+                                              updateRubricScore(
+                                                rubric.id,
+                                                e.target.value === "" ? "" : parseInt(e.target.value),
+                                                rubricScore.comment
+                                              )
+                                            }
+                                            className="h-8 text-sm"
+                                          />
+                                          <span className="text-xs text-muted-foreground">
+                                            / {rubric.maxScore}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                          <Label className="text-xs w-16 mt-1">Comment:</Label>
+                                          <Textarea
+                                            placeholder="Optional comment..."
+                                            value={rubricScore.comment}
+                                            onChange={(e) =>
+                                              updateRubricScore(
+                                                rubric.id,
+                                                rubricScore.score,
+                                                e.target.value
+                                              )
+                                            }
+                                            rows={2}
+                                            className="text-sm"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          )}
                         </motion.div>
                       </StaggerItem>
                     ))}

@@ -140,11 +140,17 @@ export default function ApplicantDashboard() {
               <CardDescription>Track your assessment journey</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-8 text-muted-foreground">
-                <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>
+              <div className="text-center py-8">
+                <CheckCircle className="w-12 h-12 mx-auto mb-4 text-primary/50" />
+                <p className="text-muted-foreground mb-4">
                   Complete simulations to see your progress and scores here.
                 </p>
+                <Link href="/dashboard/applicant/results">
+                  <Button variant="outline">
+                    View My Results
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </Link>
               </div>
             </CardContent>
           </Card>

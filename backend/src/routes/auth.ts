@@ -3,35 +3,14 @@ import bcrypt from 'bcryptjs';
 import { query } from '../config/database';
 import { generateToken, authenticate } from '../config/auth';
 import { getUserById } from '../utils/user';
+import { signupValidation, loginValidation } from '../middleware/validation';
 
 const router = express.Router();
 
 // POST /api/auth/signup/applicant
-router.post('/signup/applicant', async (req, res) => {
+router.post('/signup/applicant', signupValidation, async (req, res) => {
   try {
     const { name, email, password } = req.body;
-
-    // Validation
-    if (!name || name.length < 2) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: [{ field: 'name', message: 'Name must be at least 2 characters' }],
-      });
-    }
-
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: [{ field: 'email', message: 'Invalid email format' }],
-      });
-    }
-
-    if (!password || password.length < 6) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: [{ field: 'password', message: 'Password must be at least 6 characters' }],
-      });
-    }
 
     // Check if email already exists
     const existingUser = await query(
@@ -89,7 +68,7 @@ router.post('/signup/applicant', async (req, res) => {
 });
 
 // POST /api/auth/login/:role
-router.post('/login/:role', async (req, res) => {
+router.post('/login/:role', loginValidation, async (req, res) => {
   try {
     const role = req.params.role.toLowerCase();
     const validRoles = ['admin', 'author', 'selector', 'applicant'];
@@ -99,10 +78,6 @@ router.post('/login/:role', async (req, res) => {
     }
 
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
-    }
 
     // Get user from database
     const result = await query(
