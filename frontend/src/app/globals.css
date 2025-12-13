@@ -1,0 +1,258 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Light theme */
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 262 83% 58%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 199 89% 48%;
+    --radius: 0.625rem;
+  }
+
+  /* Dark theme */
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 199 89% 48%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 217 33% 14%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 262 83% 58%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 18%;
+    --input: 217 33% 18%;
+    --ring: 199 89% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  ::selection {
+    @apply bg-primary/20 text-foreground;
+  }
+}
+
+/* Custom scrollbar - adapts to theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Gradient text */
+.gradient-text {
+  @apply bg-gradient-to-r from-primary via-sky-500 to-primary bg-clip-text text-transparent;
+  background-size: 200% auto;
+  animation: gradient-shift 4s ease-in-out infinite;
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% center;
+  }
+  50% {
+    background-position: 100% center;
+  }
+}
+
+/* Background patterns - Light mode */
+.mesh-gradient {
+  background: 
+    radial-gradient(ellipse 80% 50% at 20% -20%, hsl(var(--primary) / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 0%, hsl(var(--accent) / 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 80% at 0% 100%, hsl(var(--primary) / 0.05) 0%, transparent 40%),
+    hsl(var(--background));
+}
+
+.dark .mesh-gradient {
+  background: 
+    radial-gradient(ellipse 80% 50% at 20% -20%, hsl(var(--primary) / 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 0%, hsl(var(--accent) / 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 80% at 0% 100%, hsl(var(--primary) / 0.08) 0%, transparent 40%),
+    hsl(var(--background));
+}
+
+.grid-background {
+  background-image: 
+    linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 100%);
+}
+
+.dark .grid-background {
+  background-image: 
+    linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+}
+
+/* Glass effects */
+.glass {
+  @apply backdrop-blur-2xl border;
+  background: hsl(var(--card) / 0.8);
+  border-color: hsl(var(--border) / 0.5);
+}
+
+.glass-card {
+  @apply backdrop-blur-xl border shadow-xl;
+  background: hsl(var(--card) / 0.8);
+  border-color: hsl(var(--border) / 0.5);
+  box-shadow: 0 25px 50px -12px hsl(var(--foreground) / 0.05);
+}
+
+.dark .glass-card {
+  background: hsl(var(--card) / 0.6);
+  border-color: hsl(var(--border) / 0.3);
+  box-shadow: 0 25px 50px -12px hsl(0 0% 0% / 0.25);
+}
+
+/* Glow effects */
+.glow {
+  box-shadow: 
+    0 0 20px -5px hsl(var(--primary) / 0.4),
+    0 0 60px -15px hsl(var(--primary) / 0.2);
+}
+
+/* Hover card effect */
+.hover-lift {
+  @apply transition-all duration-300;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 
+    0 20px 40px -15px hsl(var(--primary) / 0.15),
+    0 0 0 1px hsl(var(--primary) / 0.1);
+}
+
+/* Subtle animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-20px) rotate(2deg);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+/* Button gradient */
+.btn-gradient {
+  @apply relative overflow-hidden;
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(199 89% 40%) 100%);
+}
+
+.btn-gradient::before {
+  content: '';
+  @apply absolute inset-0 opacity-0 transition-opacity duration-300;
+  background: linear-gradient(135deg, hsl(199 89% 55%) 0%, hsl(var(--primary)) 100%);
+}
+
+.btn-gradient:hover::before {
+  @apply opacity-100;
+}
+
+/* Focus ring */
+.focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+}
+
+/* Input autofill styles */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: hsl(var(--foreground));
+  -webkit-box-shadow: 0 0 0px 1000px hsl(var(--card)) inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Theme toggle animation */
+.theme-toggle {
+  @apply relative w-9 h-9 rounded-full transition-colors duration-300;
+}
+
+.theme-toggle svg {
+  @apply absolute inset-0 m-auto transition-all duration-300;
+}
+
+.theme-toggle .sun {
+  @apply opacity-100 rotate-0 scale-100;
+}
+
+.theme-toggle .moon {
+  @apply opacity-0 -rotate-90 scale-0;
+}
+
+.dark .theme-toggle .sun {
+  @apply opacity-0 rotate-90 scale-0;
+}
+
+.dark .theme-toggle .moon {
+  @apply opacity-100 rotate-0 scale-100;
+}
