@@ -1,6 +1,7 @@
 import express from 'express';
 import { query } from '../config/database';
 import { authenticate, authorize } from '../config/auth';
+import { videoUpload, codingFileUpload, uploadsVideoPath, uploadsFilePath } from '../utils/upload';
 
 const router = express.Router();
 
@@ -319,6 +320,159 @@ router.post('/:attemptId/response', authenticate, authorize('APPLICANT'), async 
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
+
+// POST /api/attempts/:attemptId/response/video - Upload video response
+router.post(
+  '/:attemptId/response/video',
+  authenticate,
+  authorize('APPLICANT'),
+  videoUpload.single('video'),
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { attemptId } = req.params;
+      const { stepId } = req.body;
+
+      if (!stepId || !req.file) {
+        return res.status(400).json({ message: 'stepId and video file are required' });
+      }
+
+      // Verify attempt ownership/status and step type
+      const attemptResult = await query(
+        `SELECT 
+          a.applicant_id, 
+          a.status, 
+          s.id as simulation_id
+        FROM projectweb.attempts a
+        JOIN projectweb.simulations s ON a.simulation_id = s.id
+        WHERE a.id = $1`,
+        [attemptId]
+      );
+
+      if (attemptResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Attempt not found' });
+      }
+
+      const attempt = attemptResult.rows[0];
+      if (attempt.applicant_id !== user.userId) {
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+      if (attempt.status !== 'IN_PROGRESS') {
+        return res.status(400).json({ message: 'Attempt is not in progress' });
+      }
+
+      // Verify step belongs to simulation and is VIDEO
+      const stepResult = await query(
+        `SELECT type FROM projectweb.steps WHERE id = $1 AND simulation_id = $2`,
+        [stepId, attempt.simulation_id]
+      );
+      if (stepResult.rows.length === 0) {
+        return res.status(400).json({ message: 'Invalid step for this simulation' });
+      }
+      if (stepResult.rows[0].type !== 'VIDEO') {
+        return res.status(400).json({ message: 'Step is not a video step' });
+      }
+
+      const fileUrl = `${uploadsVideoPath}/${req.file.filename}`;
+
+      // Upsert response with file URL
+      const result = await query(
+        `INSERT INTO projectweb.responses (attempt_id, step_id, answer)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (attempt_id, step_id)
+         DO UPDATE SET answer = $3, updated_at = CURRENT_TIMESTAMP
+         RETURNING id, attempt_id, step_id, answer, created_at, updated_at`,
+        [attemptId, stepId, fileUrl]
+      );
+
+      const response = result.rows[0];
+      return res.json({
+        id: response.id,
+        attemptId: response.attempt_id,
+        stepId: response.step_id,
+        videoUrl: response.answer,
+      });
+    } catch (error: any) {
+      console.error('Upload video response error:', error);
+      return res.status(500).json({ message: error.message || 'Internal server error' });
+    }
+  }
+);
+
+// POST /api/attempts/:attemptId/response/file - Upload coding file
+router.post(
+  '/:attemptId/response/file',
+  authenticate,
+  authorize('APPLICANT'),
+  codingFileUpload.single('file'),
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { attemptId } = req.params;
+      const { stepId } = req.body;
+
+      if (!stepId || !req.file) {
+        return res.status(400).json({ message: 'stepId and file are required' });
+      }
+
+      const attemptResult = await query(
+        `SELECT 
+          a.applicant_id, 
+          a.status, 
+          s.id as simulation_id
+        FROM projectweb.attempts a
+        JOIN projectweb.simulations s ON a.simulation_id = s.id
+        WHERE a.id = $1`,
+        [attemptId]
+      );
+
+      if (attemptResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Attempt not found' });
+      }
+
+      const attempt = attemptResult.rows[0];
+      if (attempt.applicant_id !== user.userId) {
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+      if (attempt.status !== 'IN_PROGRESS') {
+        return res.status(400).json({ message: 'Attempt is not in progress' });
+      }
+
+      const stepResult = await query(
+        `SELECT type FROM projectweb.steps WHERE id = $1 AND simulation_id = $2`,
+        [stepId, attempt.simulation_id]
+      );
+      if (stepResult.rows.length === 0) {
+        return res.status(400).json({ message: 'Invalid step for this simulation' });
+      }
+      if (stepResult.rows[0].type !== 'CODING') {
+        return res.status(400).json({ message: 'Step is not a coding step' });
+      }
+
+      const fileUrl = `${uploadsFilePath}/${req.file.filename}`;
+
+      const result = await query(
+        `INSERT INTO projectweb.responses (attempt_id, step_id, answer)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (attempt_id, step_id)
+         DO UPDATE SET answer = $3, updated_at = CURRENT_TIMESTAMP
+         RETURNING id, attempt_id, step_id, answer, created_at, updated_at`,
+        [attemptId, stepId, fileUrl]
+      );
+
+      const response = result.rows[0];
+      return res.json({
+        id: response.id,
+        attemptId: response.attempt_id,
+        stepId: response.step_id,
+        fileUrl: response.answer,
+      });
+    } catch (error: any) {
+      console.error('Upload coding file error:', error);
+      return res.status(500).json({ message: error.message || 'Internal server error' });
+    }
+  }
+);
 
 // POST /api/attempts/:attemptId/submit - Submit attempt
 router.post('/:attemptId/submit', authenticate, authorize('APPLICANT'), async (req, res) => {

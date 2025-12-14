@@ -61,6 +61,14 @@ export default function SimulationPlayerPage() {
   const [submitting, setSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [responses, setResponses] = useState<Record<string, string>>({});
+  const [videoResponses, setVideoResponses] = useState<Record<string, string>>({});
+  const [fileResponses, setFileResponses] = useState<Record<string, string>>({});
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunks = useRef<Blob[]>([]);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -122,12 +130,22 @@ export default function SimulationPlayerPage() {
           const attemptRes = await api.get<Attempt>(`/attempts/simulation/${params.id}/current`);
           if (attemptRes.data) {
             setAttempt(attemptRes.data);
-            // Load existing responses
-            const existingResponses: Record<string, string> = {};
+            const textResponses: Record<string, string> = {};
+            const videoMap: Record<string, string> = {};
+            const fileMap: Record<string, string> = {};
             attemptRes.data.responses?.forEach((r: { stepId: string; answer: string }) => {
-              existingResponses[r.stepId] = r.answer;
+              const stepType = response.data.steps.find((s) => s.id === r.stepId)?.type;
+              if (stepType === "VIDEO" && r.answer.startsWith("/uploads/")) {
+                videoMap[r.stepId] = r.answer;
+              } else if (stepType === "CODING" && r.answer.startsWith("/uploads/")) {
+                fileMap[r.stepId] = r.answer;
+              } else {
+                textResponses[r.stepId] = r.answer;
+              }
             });
-            setResponses(existingResponses);
+            setResponses(textResponses);
+            setVideoResponses(videoMap);
+            setFileResponses(fileMap);
           }
         } catch {
           // No existing attempt
@@ -212,6 +230,92 @@ export default function SimulationPlayerPage() {
 
     setDirection(newStep > currentStep ? "right" : "left");
     setCurrentStep(newStep);
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      recordedChunks.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordedChunks.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunks.current, { type: "video/webm" });
+        setRecordedUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+      toast({
+        title: "Recording failed",
+        description: "Please allow camera/mic access",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const uploadRecordedVideo = async (stepId: string) => {
+    if (!attempt || !recordedUrl) return;
+    setUploadingVideo(true);
+    try {
+      const blob = new Blob(recordedChunks.current, { type: "video/webm" });
+      const formData = new FormData();
+      formData.append("stepId", stepId);
+      formData.append("video", blob, "response.webm");
+      const res = await api.post(`/attempts/${attempt.id}/response/video`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const url = res.data.videoUrl;
+      setVideoResponses((prev) => ({ ...prev, [stepId]: url }));
+      toast({
+        title: "Video uploaded",
+        description: "Your video response was saved.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error.response?.data?.message || "Could not upload video",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
+  const handleFileUpload = async (stepId: string, file: File) => {
+    if (!attempt) return;
+    setUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append("stepId", stepId);
+      formData.append("file", file);
+      const res = await api.post(`/attempts/${attempt.id}/response/file`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const url = res.data.fileUrl;
+      setFileResponses((prev) => ({ ...prev, [stepId]: url }));
+      toast({
+        title: "File uploaded",
+        description: "Your file was saved with this step.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error.response?.data?.message || "Could not upload file",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingFile(false);
+    }
   };
 
   if (loading) {
@@ -374,7 +478,7 @@ export default function SimulationPlayerPage() {
                 className={`h-2 flex-1 rounded-full transition-all ${
                   i === currentStep
                     ? "bg-primary"
-                    : responses[s.id]
+                    : responses[s.id] || videoResponses[s.id] || fileResponses[s.id]
                     ? "bg-primary/50"
                     : "bg-muted"
                 }`}
@@ -440,23 +544,46 @@ export default function SimulationPlayerPage() {
                 )}
 
                 {step.type === "VIDEO" && (
-                  <div className="text-center py-12 border-2 border-dashed border-border rounded-xl">
-                    <Video className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">
-                      Video recording feature coming soon
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      For now, please describe your answer in text below:
-                    </p>
-                    <Textarea
-                      className="mt-4 max-w-lg mx-auto"
-                      placeholder="Describe what you would say..."
-                      value={responses[step.id] || ""}
-                      onChange={(e) =>
-                        handleResponseChange(step.id, e.target.value)
-                      }
-                      rows={4}
-                    />
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Video className="w-4 h-4" />
+                      Record or upload your response (webm/mp4).
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        type="button"
+                        variant={recording ? "destructive" : "default"}
+                        onClick={recording ? stopRecording : startRecording}
+                      >
+                        {recording ? "Stop Recording" : "Start Recording"}
+                      </Button>
+                      {recordedUrl && (
+                        <Button
+                          type="button"
+                          onClick={() => uploadRecordedVideo(step.id)}
+                          disabled={uploadingVideo}
+                        >
+                          {uploadingVideo ? "Uploading..." : "Upload Recording"}
+                        </Button>
+                      )}
+                    </div>
+                    {recordedUrl && (
+                      <video
+                        controls
+                        src={recordedUrl}
+                        className="w-full max-w-xl rounded-lg border"
+                      />
+                    )}
+                    {videoResponses[step.id] && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-green-500">Saved video response:</p>
+                        <video
+                          controls
+                          src={videoResponses[step.id]}
+                          className="w-full max-w-xl rounded-lg border"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -464,7 +591,7 @@ export default function SimulationPlayerPage() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Code className="w-4 h-4" />
-                      Write your code below
+                      Write your code below or upload a file.
                     </div>
                     <Textarea
                       placeholder="// Enter your code here..."
@@ -475,6 +602,32 @@ export default function SimulationPlayerPage() {
                       rows={12}
                       className="font-mono text-sm resize-none"
                     />
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        accept=".txt,.js,.ts,.tsx,.jsx,.py,.java,.cpp,.c,.cs,.go,.rb,.php,.rs,.md"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(step.id, file);
+                        }}
+                      />
+                      {uploadingFile && (
+                        <span className="text-xs text-muted-foreground">Uploading...</span>
+                      )}
+                    </div>
+                    {fileResponses[step.id] && (
+                      <div className="text-sm text-muted-foreground">
+                        Attached file:{" "}
+                        <a
+                          className="text-primary underline"
+                          href={fileResponses[step.id]}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Download
+                        </a>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>

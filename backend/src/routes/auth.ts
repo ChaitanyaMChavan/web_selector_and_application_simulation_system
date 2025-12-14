@@ -7,6 +7,15 @@ import { signupValidation, loginValidation } from '../middleware/validation';
 
 const router = express.Router();
 
+// Simple in-memory lockout tracking (per email)
+const loginAttempts: Record<
+  string,
+  { count: number; firstAttempt: number; lockedUntil?: number }
+> = {};
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 15 * 60 * 1000;
+const LOCK_MS = 15 * 60 * 1000;
+
 // POST /api/auth/signup/applicant
 router.post('/signup/applicant', signupValidation, async (req, res) => {
   try {
@@ -79,6 +88,15 @@ router.post('/login/:role', loginValidation, async (req, res) => {
 
     const { email, password } = req.body;
 
+    const key = email.toLowerCase();
+    const now = Date.now();
+    const attemptInfo = loginAttempts[key];
+    if (attemptInfo?.lockedUntil && now < attemptInfo.lockedUntil) {
+      return res.status(429).json({
+        message: 'Account locked due to repeated failures. Please try again later.',
+      });
+    }
+
     // Get user from database
     const result = await query(
       'SELECT id, email, name, role, password_hash, created_at FROM projectweb.users WHERE email = $1 AND role = $2',
@@ -86,6 +104,13 @@ router.post('/login/:role', loginValidation, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      // Track failed attempt
+      loginAttempts[key] = attemptInfo && now - attemptInfo.firstAttempt < WINDOW_MS
+        ? { count: attemptInfo.count + 1, firstAttempt: attemptInfo.firstAttempt }
+        : { count: 1, firstAttempt: now };
+      if (loginAttempts[key].count >= MAX_ATTEMPTS) {
+        loginAttempts[key].lockedUntil = now + LOCK_MS;
+      }
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -94,8 +119,17 @@ router.post('/login/:role', loginValidation, async (req, res) => {
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
+      loginAttempts[key] = attemptInfo && now - attemptInfo.firstAttempt < WINDOW_MS
+        ? { count: (attemptInfo.count || 0) + 1, firstAttempt: attemptInfo.firstAttempt }
+        : { count: 1, firstAttempt: now };
+      if (loginAttempts[key].count >= MAX_ATTEMPTS) {
+        loginAttempts[key].lockedUntil = now + LOCK_MS;
+      }
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    // Successful login clears attempts
+    delete loginAttempts[key];
 
     // Generate token
     const token = generateToken({

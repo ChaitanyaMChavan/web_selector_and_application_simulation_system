@@ -414,30 +414,60 @@ export default function ScoreAttemptPage() {
                             <p className="text-sm text-muted-foreground mb-1">
                               Response:
                             </p>
-                            {step.type === "MCQ" ? (
-                              <div className="space-y-1">
-                                {step.options?.map((opt, i) => (
-                                  <div
-                                    key={i}
-                                    className={`text-sm px-2 py-1 rounded ${
-                                      opt === getResponseForStep(step.id)
-                                        ? "bg-primary/20 text-primary font-medium"
-                                        : "text-muted-foreground"
-                                    }`}
-                                  >
-                                    {String.fromCharCode(65 + i)}. {opt}
+                            {(() => {
+                              const responseVal = getResponseForStep(step.id);
+                              if (step.type === "MCQ") {
+                                return (
+                                  <div className="space-y-1">
+                                    {step.options?.map((opt, i) => (
+                                      <div
+                                        key={i}
+                                        className={`text-sm px-2 py-1 rounded ${
+                                          opt === responseVal
+                                            ? "bg-primary/20 text-primary font-medium"
+                                            : "text-muted-foreground"
+                                        }`}
+                                      >
+                                        {String.fromCharCode(65 + i)}. {opt}
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
-                              </div>
-                            ) : step.type === "CODING" ? (
-                              <pre className="text-sm font-mono whitespace-pre-wrap bg-muted/50 p-3 rounded">
-                                {getResponseForStep(step.id)}
-                              </pre>
-                            ) : (
-                              <p className="text-sm whitespace-pre-wrap">
-                                {getResponseForStep(step.id)}
-                              </p>
-                            )}
+                                );
+                              }
+
+                              if (step.type === "VIDEO" && responseVal?.startsWith("/uploads/")) {
+                                return (
+                                  <video controls src={responseVal} className="w-full max-w-xl rounded border" />
+                                );
+                              }
+
+                              if (step.type === "CODING" && responseVal?.startsWith("/uploads/")) {
+                                return (
+                                  <a
+                                    href={responseVal}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-sm text-primary underline"
+                                  >
+                                    Download attached file
+                                  </a>
+                                );
+                              }
+
+                              if (step.type === "CODING") {
+                                return (
+                                  <pre className="text-sm font-mono whitespace-pre-wrap bg-muted/50 p-3 rounded">
+                                    {responseVal || "No response"}
+                                  </pre>
+                                );
+                              }
+
+                              return (
+                                <p className="text-sm whitespace-pre-wrap">
+                                  {responseVal || "No response"}
+                                </p>
+                              );
+                            })()}
                           </div>
 
                           {/* Rubrics Scoring */}

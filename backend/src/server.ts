@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import morgan from 'morgan';
 
 // Import security middleware
 import { helmetConfig, generalRateLimiter, authRateLimiter } from './middleware/security';
@@ -13,6 +15,7 @@ import attemptRoutes from './routes/attempts';
 import scoringRoutes from './routes/scoring';
 import adminRoutes from './routes/admin';
 import rubricRoutes from './routes/rubrics';
+import responseRoutes from './routes/responses';
 
 const app = express();
 const PORT = env.PORT;
@@ -20,6 +23,9 @@ const CORS_ORIGIN = env.CORS_ORIGIN;
 
 // Security middleware (must be first)
 app.use(helmetConfig);
+
+// Request logging
+app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // CORS configuration
 app.use(cors({
@@ -33,6 +39,9 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' })); // Limit request body size
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+// Static files for uploads
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Rate limiting (apply to all routes)
 app.use('/api', generalRateLimiter);
@@ -50,6 +59,7 @@ app.use('/api/attempts', attemptRoutes);
 app.use('/api/scoring', scoringRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rubrics', rubricRoutes);
+app.use('/api/responses', responseRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
