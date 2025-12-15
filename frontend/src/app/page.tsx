@@ -118,30 +118,32 @@ export default function Home() {
         >
           {roles.map((role) => (
             <StaggerItem key={role.title}>
-              <Link href={role.href} className="block group">
+              <Link href={role.href} className="block group h-full">
                 <motion.div
                   whileHover={{ y: -8, scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                  className={`relative p-6 rounded-2xl glass-card cursor-pointer overflow-hidden ${role.hoverBg} transition-colors duration-300`}
+                  className={`relative p-6 rounded-2xl glass-card cursor-pointer overflow-hidden ${role.hoverBg} transition-colors duration-300 h-full flex flex-col`}
                 >
                   {/* Icon */}
-                  <div className={`relative w-12 h-12 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center text-white mb-4 shadow-lg ${role.shadow}`}>
+                  <div className={`relative w-12 h-12 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center text-white mb-4 shadow-lg ${role.shadow} flex-shrink-0`}>
                     {role.icon}
                   </div>
 
                   {/* Content */}
-                  <h3 className="text-lg font-semibold mb-1">
-                    {role.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {role.description}
-                  </p>
+                  <div className="flex-1 flex flex-col">
+                    <h3 className="text-lg font-semibold mb-1">
+                      {role.title}
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4 flex-1">
+                      {role.description}
+                    </p>
 
-                  {/* Arrow */}
-                  <div className="flex items-center text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors">
-                    <span>Sign in</span>
-                    <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    {/* Arrow */}
+                    <div className="flex items-center text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors mt-auto">
+                      <span>Sign in</span>
+                      <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    </div>
                   </div>
                 </motion.div>
               </Link>
