@@ -17,7 +17,7 @@ const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
 
 // POST /api/auth/signup/applicant
-router.post('/signup/applicant', signupValidation, async (req, res) => {
+router.post('/signup/applicant', signupValidation, async (req: express.Request, res: express.Response) => {
   try {
     const { name, email, password } = req.body;
 
@@ -77,7 +77,7 @@ router.post('/signup/applicant', signupValidation, async (req, res) => {
 });
 
 // POST /api/auth/login/:role
-router.post('/login/:role', loginValidation, async (req, res) => {
+router.post('/login/:role', loginValidation, async (req: express.Request, res: express.Response) => {
   try {
     const role = req.params.role.toLowerCase();
     const validRoles = ['admin', 'author', 'selector', 'applicant'];

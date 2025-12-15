@@ -3,6 +3,20 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { DashboardLayout } from "@/components/layouts/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -90,6 +104,7 @@ export default function StepsBuilderPage() {
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reordering, setReordering] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -103,6 +118,21 @@ export default function StepsBuilderPage() {
     prompt: "",
     options: ["", "", "", ""],
   });
+  const [rubrics, setRubrics] = useState<Map<string, Rubric[]>>(new Map());
+  const [loadingRubrics, setLoadingRubrics] = useState<Set<string>>(new Set());
+  const [rubricDialogOpen, setRubricDialogOpen] = useState(false);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [newRubric, setNewRubric] = useState({
+    criterionName: "",
+    description: "",
+    maxScore: 10,
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
 
   useEffect(() => {
     const loadData = async () => {
@@ -212,7 +242,7 @@ export default function StepsBuilderPage() {
       if (newStep.type === "MCQ") {
         payload.options = newStep.options.filter((o) => o.trim());
       } else {
-        payload.options = null;
+        payload.options = undefined;
       }
 
       const response = await api.patch<Step>(
@@ -265,7 +295,7 @@ export default function StepsBuilderPage() {
 
   const loadRubrics = async (stepId: string) => {
     if (loadingRubrics.has(stepId)) return;
-    setLoadingRubrics(new Set([...loadingRubrics, stepId]));
+    setLoadingRubrics(new Set([...Array.from(loadingRubrics), stepId]));
     try {
       const response = await api.get<Rubric[]>(`/rubrics/step/${stepId}`);
       const newRubrics = new Map(rubrics);
@@ -274,7 +304,7 @@ export default function StepsBuilderPage() {
     } catch (error) {
       console.error("Failed to load rubrics:", error);
     } finally {
-      const newLoading = new Set(loadingRubrics);
+      const newLoading = new Set(Array.from(loadingRubrics));
       newLoading.delete(stepId);
       setLoadingRubrics(newLoading);
     }
@@ -345,6 +375,124 @@ export default function StepsBuilderPage() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleReorder = async (activeId: string, overId: string) => {
+    if (activeId === overId) return;
+    const oldIndex = steps.findIndex((s) => s.id === activeId);
+    const newIndex = steps.findIndex((s) => s.id === overId);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = [...steps];
+    const [moved] = reordered.splice(oldIndex, 1);
+    reordered.splice(newIndex, 0, moved);
+
+    const reorderedWithOrder = reordered.map((s, idx) => ({ ...s, order: idx + 1 }));
+    setSteps(reorderedWithOrder);
+    setReordering(true);
+
+    try {
+      await api.patch(`/simulations/${params.id}/steps/reorder`, {
+        steps: reorderedWithOrder.map((s) => ({ id: s.id, order: s.order })),
+      });
+      toast({
+        title: "Order updated",
+        description: "Step order has been saved.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Reorder failed",
+        description: error.response?.data?.message || "Could not save order",
+        variant: "destructive",
+      });
+      try {
+        const stepsRes = await api.get<Step[]>(`/simulations/${params.id}/steps`);
+        setSteps(stepsRes.data);
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      handleReorder(String(active.id), String(over.id));
+    }
+  };
+
+  const SortableStep = ({ step, index }: { step: Step; index: number }) => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+      useSortable({ id: step.id });
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.6 : 1,
+    };
+
+    return (
+      <motion.div
+        key={step.id}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, x: -100 }}
+        transition={{ delay: index * 0.05 }}
+        className="flex items-start gap-3 p-4 rounded-xl border border-border/50 bg-card/50 hover:border-border transition-colors group"
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+      >
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <GripVertical className="w-5 h-5 cursor-grab" />
+          <span className="font-mono text-sm w-6">{index + 1}.</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <Badge className={stepTypeColors[step.type]} variant="outline">
+              {stepTypeIcons[step.type]}
+              {step.type}
+            </Badge>
+          </div>
+          <p className="text-sm line-clamp-2">{step.prompt}</p>
+          {step.type === "MCQ" && step.options && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {step.options.length} options
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {rubrics.has(step.id) && (
+            <Badge variant="outline" className="text-xs">
+              {rubrics.get(step.id)?.length || 0} rubrics
+            </Badge>
+          )}
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleManageRubrics(step.id)}
+              title="Manage Rubrics"
+            >
+              <FileCheck className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => handleEditStep(step)}>
+              <Edit className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={() => handleDeleteStep(step.id)}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    );
   };
 
   const updateOption = (index: number, value: string) => {
@@ -681,74 +829,27 @@ export default function StepsBuilderPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <AnimatePresence>
-                    {steps.map((step, index) => (
-                      <motion.div
-                        key={step.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, x: -100 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="flex items-start gap-3 p-4 rounded-xl border border-border/50 bg-card/50 hover:border-border transition-colors group"
-                      >
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <GripVertical className="w-5 h-5 cursor-grab" />
-                          <span className="font-mono text-sm w-6">
-                            {index + 1}.
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge
-                              className={stepTypeColors[step.type]}
-                              variant="outline"
-                            >
-                              {stepTypeIcons[step.type]}
-                              {step.type}
-                            </Badge>
-                          </div>
-                          <p className="text-sm line-clamp-2">{step.prompt}</p>
-                          {step.type === "MCQ" && step.options && (
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              {step.options.length} options
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {rubrics.has(step.id) && (
-                            <Badge variant="outline" className="text-xs">
-                              {rubrics.get(step.id)?.length || 0} rubrics
-                            </Badge>
-                          )}
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleManageRubrics(step.id)}
-                              title="Manage Rubrics"
-                            >
-                              <FileCheck className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleEditStep(step)}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDeleteStep(step.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={onDragEnd}
+                  >
+                    <SortableContext
+                      items={steps.map((s) => s.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <AnimatePresence>
+                        {steps.map((step, index) => (
+                          <SortableStep key={step.id} step={step} index={index} />
+                        ))}
+                      </AnimatePresence>
+                    </SortableContext>
+                  </DndContext>
+                  {reordering && (
+                    <p className="text-xs text-muted-foreground text-right">
+                      Saving order...
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>

@@ -135,7 +135,7 @@ export default function SimulationPlayerPage() {
             const fileMap: Record<string, string> = {};
             attemptRes.data.responses?.forEach((r: { stepId: string; answer: string }) => {
               const stepType = response.data.steps.find((s) => s.id === r.stepId)?.type;
-              if (stepType === "VIDEO" && r.answer.startsWith("/uploads/")) {
+              if (stepType === "VIDEO" && r.answer && (r.answer.startsWith("/uploads/") || r.answer.startsWith("http"))) {
                 videoMap[r.stepId] = r.answer;
               } else if (stepType === "CODING" && r.answer.startsWith("/uploads/")) {
                 fileMap[r.stepId] = r.answer;

@@ -435,22 +435,27 @@ export default function ScoreAttemptPage() {
                                 );
                               }
 
-                              if (step.type === "VIDEO" && responseVal?.startsWith("/uploads/")) {
+                              if (step.type === "VIDEO" && responseVal && (responseVal.startsWith("http") || responseVal.startsWith("/uploads/"))) {
                                 return (
                                   <video controls src={responseVal} className="w-full max-w-xl rounded border" />
                                 );
                               }
 
-                              if (step.type === "CODING" && responseVal?.startsWith("/uploads/")) {
+                              if (step.type === "CODING" && responseVal && (responseVal.startsWith("http") || responseVal.startsWith("/uploads/"))) {
                                 return (
-                                  <a
-                                    href={responseVal}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-sm text-primary underline"
-                                  >
-                                    Download attached file
-                                  </a>
+                                  <div className="space-y-2">
+                                    <a
+                                      href={responseVal}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-sm text-primary underline inline-flex items-center gap-2"
+                                    >
+                                      Download attached file
+                                    </a>
+                                    {responseVal.includes("cloudinary") && (
+                                      <p className="text-xs text-muted-foreground">File stored on Cloudinary</p>
+                                    )}
+                                  </div>
                                 );
                               }
 

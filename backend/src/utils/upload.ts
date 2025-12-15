@@ -50,3 +50,4 @@ export const uploadsBasePath = '/uploads';
 export const uploadsVideoPath = `${uploadsBasePath}/videos`;
 export const uploadsFilePath = `${uploadsBasePath}/files`;
 
+

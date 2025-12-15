@@ -218,7 +218,7 @@ router.delete('/users/:id', async (req, res) => {
 });
 
 // GET /api/admin/stats - System statistics
-router.get('/stats', async (req, res) => {
+router.get('/stats', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const [
       usersCount,
@@ -331,4 +331,5 @@ router.get('/analytics', async (req, res) => {
 });
 
 export default router;
+
 

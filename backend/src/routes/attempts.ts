@@ -2,6 +2,8 @@ import express from 'express';
 import { query } from '../config/database';
 import { authenticate, authorize } from '../config/auth';
 import { videoUpload, codingFileUpload, uploadsVideoPath, uploadsFilePath } from '../utils/upload';
+import { uploadVideo, uploadFile } from '../utils/cloudinary';
+import fs from 'fs';
 
 const router = express.Router();
 
@@ -373,7 +375,23 @@ router.post(
         return res.status(400).json({ message: 'Step is not a video step' });
       }
 
-      const fileUrl = `${uploadsVideoPath}/${req.file.filename}`;
+      // Upload to Cloudinary or use local storage
+      let fileUrl: string;
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        console.log(`Attempting to upload video to Cloudinary: ${req.file.filename} (${fileBuffer.length} bytes)`);
+        const uploadResult = await uploadVideo(fileBuffer, req.file.filename);
+        fileUrl = uploadResult.secure_url;
+        console.log(`✅ Video uploaded to Cloudinary: ${fileUrl}`);
+        // Delete local file after successful Cloudinary upload
+        fs.unlinkSync(req.file.path);
+      } catch (cloudinaryError: any) {
+        // Fallback to local storage if Cloudinary fails
+        console.error('❌ Cloudinary upload failed:', cloudinaryError.message);
+        console.error('   Error details:', cloudinaryError);
+        console.warn('   Falling back to local storage');
+        fileUrl = `${uploadsVideoPath}/${req.file.filename}`;
+      }
 
       // Upsert response with file URL
       const result = await query(
@@ -449,7 +467,23 @@ router.post(
         return res.status(400).json({ message: 'Step is not a coding step' });
       }
 
-      const fileUrl = `${uploadsFilePath}/${req.file.filename}`;
+      // Upload to Cloudinary or use local storage
+      let fileUrl: string;
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        console.log(`Attempting to upload file to Cloudinary: ${req.file.filename} (${fileBuffer.length} bytes)`);
+        const uploadResult = await uploadFile(fileBuffer, req.file.filename);
+        fileUrl = uploadResult.secure_url;
+        console.log(`✅ File uploaded to Cloudinary: ${fileUrl}`);
+        // Delete local file after successful Cloudinary upload
+        fs.unlinkSync(req.file.path);
+      } catch (cloudinaryError: any) {
+        // Fallback to local storage if Cloudinary fails
+        console.error('❌ Cloudinary upload failed:', cloudinaryError.message);
+        console.error('   Error details:', cloudinaryError);
+        console.warn('   Falling back to local storage');
+        fileUrl = `${uploadsFilePath}/${req.file.filename}`;
+      }
 
       const result = await query(
         `INSERT INTO projectweb.responses (attempt_id, step_id, answer)

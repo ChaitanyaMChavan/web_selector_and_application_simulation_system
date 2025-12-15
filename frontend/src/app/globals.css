@@ -3,6 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  * {
+    font-family: var(--font-poppins), system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer base {
   /* Light theme */
   :root {
     --background: 210 40% 98%;

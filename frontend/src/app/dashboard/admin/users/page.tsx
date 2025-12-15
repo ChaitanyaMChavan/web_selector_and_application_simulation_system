@@ -71,11 +71,16 @@ export default function AdminUsersPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    email: string;
+    password: string;
+    name: string;
+    role: "ADMIN" | "AUTHOR" | "SELECTOR" | "APPLICANT";
+  }>({
     email: "",
     password: "",
     name: "",
-    role: "APPLICANT" as const,
+    role: "APPLICANT",
   });
 
   useEffect(() => {
@@ -502,4 +507,5 @@ export default function AdminUsersPage() {
     </DashboardLayout>
   );
 }
+
 

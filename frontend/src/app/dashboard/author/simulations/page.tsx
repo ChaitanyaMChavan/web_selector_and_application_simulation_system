@@ -169,16 +169,23 @@ export default function SimulationsListPage() {
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-2">
                               <Link
+                                href={`/dashboard/author/simulations/${sim.id}/view`}
+                              >
+                                <Button variant="ghost" size="sm" title="View">
+                                  <FileText className="w-4 h-4" />
+                                </Button>
+                              </Link>
+                              <Link
                                 href={`/dashboard/author/simulations/${sim.id}/edit`}
                               >
-                                <Button variant="ghost" size="sm">
+                                <Button variant="ghost" size="sm" title="Edit">
                                   <Edit className="w-4 h-4" />
                                 </Button>
                               </Link>
                               <Link
                                 href={`/dashboard/author/simulations/${sim.id}/steps`}
                               >
-                                <Button variant="ghost" size="sm">
+                                <Button variant="ghost" size="sm" title="Manage Steps">
                                   <Layers className="w-4 h-4" />
                                 </Button>
                               </Link>

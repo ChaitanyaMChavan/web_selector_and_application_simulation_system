@@ -4,9 +4,14 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import morgan from 'morgan';
 
+// Import env first to load .env file
+import env from './config/env';
+
+// Import Cloudinary after env is loaded
+import './utils/cloudinary';
+
 // Import security middleware
 import { helmetConfig, generalRateLimiter, authRateLimiter } from './middleware/security';
-import env from './config/env';
 
 // Import routes
 import authRoutes from './routes/auth';
