@@ -160,11 +160,13 @@ router.get('/:id', authenticate, async (req, res) => {
     const simulation = simResult.rows[0];
 
     // Check access: AUTHOR can see own, APPLICANT can see published
+    // Use 403 instead of 404 to prevent information leakage about simulation existence
     if (user.role === 'APPLICANT' && simulation.status !== 'PUBLISHED') {
-      return res.status(404).json({ message: 'Simulation not found' });
+      return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    if ((user.role === 'AUTHOR' || user.role === 'ADMIN') && simulation.author_id !== user.userId && user.role !== 'ADMIN') {
+    // Non-ADMIN users must own the simulation to access it (except APPLICANTs accessing published simulations)
+    if (user.role !== 'ADMIN' && user.role !== 'APPLICANT' && simulation.author_id !== user.userId) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
@@ -293,7 +295,8 @@ router.get('/:id/steps', authenticate, async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    if ((user.role === 'AUTHOR' || user.role === 'ADMIN') && simulation.author_id !== user.userId && user.role !== 'ADMIN') {
+    // Non-ADMIN users must own the simulation to access it (except APPLICANTs accessing published simulations)
+    if (user.role !== 'ADMIN' && user.role !== 'APPLICANT' && simulation.author_id !== user.userId) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 

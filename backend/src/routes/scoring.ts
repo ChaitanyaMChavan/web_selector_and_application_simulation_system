@@ -92,17 +92,17 @@ router.get('/attempt/:attemptId', authenticate, authorize('SELECTOR', 'ADMIN'), 
 
     // Get responses
     const responsesResult = await query(
-      'SELECT step_id, answer FROM projectweb.responses WHERE attempt_id = $1',
+      'SELECT id, step_id, answer FROM projectweb.responses WHERE attempt_id = $1',
       [attemptId]
     );
 
     const responsesMap = new Map(
-      responsesResult.rows.map(r => [r.step_id, r.answer])
+      responsesResult.rows.map(r => [r.step_id, { id: r.id, answer: r.answer }])
     );
 
     // Get rubrics for each step
     const stepIds = stepsResult.rows.map(s => s.id);
-    let rubricsMap = new Map();
+    let rubricsMap = new Map<string, any[]>();
     if (stepIds.length > 0) {
       const rubricsResult = await query(
         `SELECT id, step_id, criterion_name, description, max_score, "order"
@@ -112,24 +112,13 @@ router.get('/attempt/:attemptId', authenticate, authorize('SELECTOR', 'ADMIN'), 
         [stepIds]
       );
 
-      rubricsMap = new Map(
-        rubricsResult.rows.map(r => {
-          const key = r.step_id;
-          if (!rubricsMap.has(key)) {
-            rubricsMap.set(key, []);
-          }
-          return r;
-        })
-      );
-
       // Group rubrics by step_id
-      const groupedRubrics = new Map<string, any[]>();
       rubricsResult.rows.forEach(r => {
         const stepId = r.step_id;
-        if (!groupedRubrics.has(stepId)) {
-          groupedRubrics.set(stepId, []);
+        if (!rubricsMap.has(stepId)) {
+          rubricsMap.set(stepId, []);
         }
-        groupedRubrics.get(stepId)!.push({
+        rubricsMap.get(stepId)!.push({
           id: r.id,
           stepId: r.step_id,
           criterionName: r.criterion_name,
@@ -138,7 +127,6 @@ router.get('/attempt/:attemptId', authenticate, authorize('SELECTOR', 'ADMIN'), 
           order: r.order,
         });
       });
-      rubricsMap = groupedRubrics;
     }
 
     // Get existing rubric scores if attempt is already scored
@@ -183,9 +171,10 @@ router.get('/attempt/:attemptId', authenticate, authorize('SELECTOR', 'ADMIN'), 
         name: attempt.applicant_name,
         email: attempt.applicant_email,
       },
-      responses: Array.from(responsesMap.entries()).map(([stepId, answer]) => ({
+      responses: Array.from(responsesMap.entries()).map(([stepId, data]) => ({
         stepId,
-        answer,
+        answer: data.answer,
+        id: data.id,
       })),
       existingScores: Object.fromEntries(existingScores),
     });

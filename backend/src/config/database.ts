@@ -13,14 +13,19 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-// Set default schema on connection
+// Set default schema on connection and log connection
+// Note: We use .then() instead of async/await because event handlers don't properly await promises
 pool.on('connect', (client) => {
-  client.query('SET search_path TO projectweb');
-});
-
-// Test connection
-pool.on('connect', () => {
-  console.log('Database connected');
+  // Use .then() and .catch() to properly handle the promise
+  client.query('SET search_path TO projectweb')
+    .then(() => {
+      console.log('Database connected');
+    })
+    .catch((error) => {
+      console.error('Failed to set search_path on connection:', error);
+      // Don't throw - let the connection be used, but log the error
+      // The query helper will handle schema issues
+    });
 });
 
 pool.on('error', (err) => {

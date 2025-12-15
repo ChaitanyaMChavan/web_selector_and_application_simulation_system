@@ -47,6 +47,7 @@ interface Step {
 interface Response {
   stepId: string;
   answer: string;
+  id?: string; // Response ID for fetching file content
 }
 
 interface AttemptDetails {
@@ -89,6 +90,8 @@ export default function ScoreAttemptPage() {
   const [feedback, setFeedback] = useState("");
   const [rubricScores, setRubricScores] = useState<Map<string, { score: number | ""; comment: string }>>(new Map());
   const [existingScores, setExistingScores] = useState<Record<string, { score: number; comment: string }>>({});
+  const [fileContents, setFileContents] = useState<Map<string, string>>(new Map());
+  const [loadingFileContents, setLoadingFileContents] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const loadAttempt = async () => {
@@ -123,6 +126,33 @@ export default function ScoreAttemptPage() {
     };
     loadAttempt();
   }, [params.attemptId, router, toast]);
+
+  // Fetch file contents for coding steps with file URLs
+  useEffect(() => {
+    if (!attempt) return;
+
+    attempt.simulation.steps.forEach((step) => {
+      if (step.type !== 'CODING') return;
+      
+      const response = attempt.responses.find((r) => r.stepId === step.id);
+      if (!response || !response.id) return;
+      
+      const responseVal = response.answer;
+      const isFileResponse = responseVal && (responseVal.startsWith('http') || responseVal.startsWith('/uploads/'));
+      
+      if (isFileResponse) {
+        // Check current state to avoid re-fetching
+        const fileContent = fileContents.get(step.id);
+        const isLoading = loadingFileContents.has(step.id);
+        
+        // Auto-fetch file content if not already loaded or loading
+        if (!fileContent && !isLoading) {
+          fetchFileContent(response.id, step.id);
+        }
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
 
 
   const calculateTotalScore = () => {
@@ -228,6 +258,29 @@ export default function ScoreAttemptPage() {
 
   const getResponseForStep = (stepId: string) => {
     return attempt?.responses.find((r) => r.stepId === stepId)?.answer || "No response";
+  };
+
+  const fetchFileContent = async (responseId: string, stepId: string) => {
+    if (loadingFileContents.has(stepId) || fileContents.has(stepId)) {
+      return;
+    }
+    setLoadingFileContents((prev) => new Set([...Array.from(prev), stepId]));
+    try {
+      const response = await api.get(`/responses/${responseId}/file-content`);
+      setFileContents((prev) => new Map([...Array.from(prev.entries()), [stepId, response.data.content]]));
+    } catch (error) {
+      console.error('Failed to fetch file content:', error);
+    } finally {
+      setLoadingFileContents((prev) => new Set(Array.from(prev).filter(id => id !== stepId)));
+    }
+  };
+
+  const isVideoUrl = (url: string) => {
+    return url && (url.startsWith('http') || url.startsWith('/uploads/'));
+  };
+
+  const isFileUrl = (url: string) => {
+    return url && (url.startsWith('http') || url.startsWith('/uploads/'));
   };
 
   if (loading) {
@@ -435,31 +488,71 @@ export default function ScoreAttemptPage() {
                                 );
                               }
 
-                              if (step.type === "VIDEO" && responseVal && (responseVal.startsWith("http") || responseVal.startsWith("/uploads/"))) {
-                                return (
-                                  <video controls src={responseVal} className="w-full max-w-xl rounded border" />
-                                );
-                              }
-
-                              if (step.type === "CODING" && responseVal && (responseVal.startsWith("http") || responseVal.startsWith("/uploads/"))) {
-                                return (
-                                  <div className="space-y-2">
-                                    <a
-                                      href={responseVal}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-sm text-primary underline inline-flex items-center gap-2"
-                                    >
-                                      Download attached file
-                                    </a>
-                                    {responseVal.includes("cloudinary") && (
-                                      <p className="text-xs text-muted-foreground">File stored on Cloudinary</p>
-                                    )}
-                                  </div>
-                                );
+                              if (step.type === "VIDEO" && responseVal && isVideoUrl(responseVal)) {
+                                // Handle Cloudinary URLs and local paths
+                                const videoUrl = responseVal.startsWith("https://") 
+                                  ? responseVal 
+                                  : responseVal.startsWith("/uploads/")
+                                  ? responseVal
+                                  : null;
+                                
+                                if (videoUrl) {
+                                  return (
+                                    <div className="space-y-2">
+                                      <video 
+                                        controls 
+                                        src={videoUrl} 
+                                        className="w-full max-w-xl rounded border"
+                                        preload="metadata"
+                                      />
+                                      {responseVal.includes("cloudinary") && (
+                                        <p className="text-xs text-muted-foreground">Video stored on Cloudinary</p>
+                                      )}
+                                    </div>
+                                  );
+                                }
                               }
 
                               if (step.type === "CODING") {
+                                const response = attempt?.responses.find((r) => r.stepId === step.id);
+                                const responseId = response?.id;
+                                const isFileResponse = responseVal && isFileUrl(responseVal);
+                                
+                                // If it's a file URL, display content (fetching is handled in useEffect)
+                                if (isFileResponse && responseId) {
+                                  const fileContent = fileContents.get(step.id);
+                                  const isLoading = loadingFileContents.has(step.id);
+                                  
+                                  return (
+                                    <div className="space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <a
+                                          href={responseVal}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-sm text-primary underline inline-flex items-center gap-2"
+                                        >
+                                          Download attached file
+                                        </a>
+                                        {responseVal.includes("cloudinary") && (
+                                          <span className="text-xs text-muted-foreground">Stored on Cloudinary</span>
+                                        )}
+                                      </div>
+                                      {isLoading && (
+                                        <div className="text-sm text-muted-foreground">Loading file content...</div>
+                                      )}
+                                      {fileContent && (
+                                        <div className="relative">
+                                          <pre className="text-sm font-mono whitespace-pre-wrap bg-muted/50 p-3 rounded border overflow-x-auto max-h-96 overflow-y-auto">
+                                            <code>{fileContent}</code>
+                                          </pre>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                
+                                // If it's plain text code (not a file)
                                 return (
                                   <pre className="text-sm font-mono whitespace-pre-wrap bg-muted/50 p-3 rounded">
                                     {responseVal || "No response"}

@@ -70,6 +70,15 @@ export default function SimulationPlayerPage() {
   const recordedChunks = useRef<Blob[]>([]);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  // Cleanup: revoke object URL on unmount
+  useEffect(() => {
+    return () => {
+      if (recordedUrl) {
+        URL.revokeObjectURL(recordedUrl);
+      }
+    };
+  }, [recordedUrl]);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -137,8 +146,10 @@ export default function SimulationPlayerPage() {
               const stepType = response.data.steps.find((s) => s.id === r.stepId)?.type;
               if (stepType === "VIDEO" && r.answer && (r.answer.startsWith("/uploads/") || r.answer.startsWith("http"))) {
                 videoMap[r.stepId] = r.answer;
-              } else if (stepType === "CODING" && r.answer.startsWith("/uploads/")) {
+                textResponses[r.stepId] = r.answer; // Also store in main responses
+              } else if (stepType === "CODING" && r.answer && (r.answer.startsWith("/uploads/") || r.answer.startsWith("http"))) {
                 fileMap[r.stepId] = r.answer;
+                textResponses[r.stepId] = r.answer; // Also store in main responses
               } else {
                 textResponses[r.stepId] = r.answer;
               }
@@ -233,8 +244,9 @@ export default function SimulationPlayerPage() {
   };
 
   const startRecording = async () => {
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       recordedChunks.current = [];
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
@@ -243,12 +255,26 @@ export default function SimulationPlayerPage() {
       };
       recorder.onstop = () => {
         const blob = new Blob(recordedChunks.current, { type: "video/webm" });
-        setRecordedUrl(URL.createObjectURL(blob));
-        stream.getTracks().forEach((t) => t.stop());
+        // Revoke previous object URL if it exists
+        setRecordedUrl((prevUrl) => {
+          if (prevUrl) {
+            URL.revokeObjectURL(prevUrl);
+          }
+          return URL.createObjectURL(blob);
+        });
+        stream?.getTracks().forEach((t) => t.stop());
+      };
+      recorder.onerror = () => {
+        // Stop stream if recorder encounters an error
+        stream?.getTracks().forEach((t) => t.stop());
       };
       recorder.start();
       setRecording(true);
     } catch (err) {
+      // Clean up stream if error occurs before recorder.start() completes
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
       console.error("Failed to start recording", err);
       toast({
         title: "Recording failed",
@@ -271,11 +297,19 @@ export default function SimulationPlayerPage() {
       const formData = new FormData();
       formData.append("stepId", stepId);
       formData.append("video", blob, "response.webm");
-      const res = await api.post(`/attempts/${attempt.id}/response/video`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.post(`/attempts/${attempt.id}/response/video`, formData);
       const url = res.data.videoUrl;
       setVideoResponses((prev) => ({ ...prev, [stepId]: url }));
+      // Also update the main responses state so it's saved properly
+      setResponses((prev) => ({ ...prev, [stepId]: url }));
+      // Clear the recorded URL after successful upload and revoke object URL
+      setRecordedUrl((prevUrl) => {
+        if (prevUrl) {
+          URL.revokeObjectURL(prevUrl);
+        }
+        return null;
+      });
+      recordedChunks.current = [];
       toast({
         title: "Video uploaded",
         description: "Your video response was saved.",
@@ -296,13 +330,20 @@ export default function SimulationPlayerPage() {
     setUploadingFile(true);
     try {
       const formData = new FormData();
-      formData.append("stepId", stepId);
+      // Ensure stepId is a string
+      formData.append("stepId", String(stepId));
       formData.append("file", file);
-      const res = await api.post(`/attempts/${attempt.id}/response/file`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      
+      // Debug in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Uploading file:', { stepId, fileName: file.name, fileSize: file.size });
+      }
+      
+      const res = await api.post(`/attempts/${attempt.id}/response/file`, formData);
       const url = res.data.fileUrl;
       setFileResponses((prev) => ({ ...prev, [stepId]: url }));
+      // Also update the main responses state so it's saved properly
+      setResponses((prev) => ({ ...prev, [stepId]: url }));
       toast({
         title: "File uploaded",
         description: "Your file was saved with this step.",

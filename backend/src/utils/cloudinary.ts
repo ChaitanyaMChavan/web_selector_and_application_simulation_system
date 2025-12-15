@@ -22,7 +22,7 @@ const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
 // Check if using URL format or individual variables
 const isCloudinaryConfigured = 
-  CLOUDINARY_URL !== undefined && CLOUDINARY_URL !== '' ||
+  (CLOUDINARY_URL !== undefined && CLOUDINARY_URL !== '') ||
   (CLOUDINARY_CLOUD_NAME && 
    CLOUDINARY_API_KEY && 
    CLOUDINARY_API_SECRET &&
@@ -33,8 +33,45 @@ const isCloudinaryConfigured =
 if (isCloudinaryConfigured) {
   // Configure Cloudinary - prefer URL format if available
   if (CLOUDINARY_URL) {
-    cloudinary.config(CLOUDINARY_URL);
-    console.log('✅ Cloudinary configured using CLOUDINARY_URL');
+    // Validate and normalize CLOUDINARY_URL format
+    // Cloudinary expects either "cloudinary://api_key:api_secret@cloud_name" or a properly formatted URL
+    let configUrl = CLOUDINARY_URL;
+    if (!configUrl.startsWith('cloudinary://')) {
+      // Try to parse as a standard URL and convert to cloudinary:// format
+      try {
+        const url = new URL(configUrl);
+        const username = url.username || CLOUDINARY_API_KEY || '';
+        const password = url.password || CLOUDINARY_API_SECRET || '';
+        const hostname = url.hostname || CLOUDINARY_CLOUD_NAME || '';
+        if (hostname && username && password) {
+          configUrl = `cloudinary://${username}:${password}@${hostname}`;
+          console.log('ℹ️  Converted CLOUDINARY_URL to cloudinary:// format');
+        } else {
+          // Fall back to individual variables if URL parsing fails
+          throw new Error('Invalid CLOUDINARY_URL format');
+        }
+      } catch (parseError) {
+        console.warn('⚠️  CLOUDINARY_URL format is invalid, falling back to individual variables');
+        configUrl = null; // Will trigger fallback to individual variables
+      }
+    }
+    
+    if (configUrl) {
+      cloudinary.config(configUrl);
+      console.log('✅ Cloudinary configured using CLOUDINARY_URL');
+    } else {
+      // Fallback to individual variables
+      cloudinary.config({
+        cloud_name: CLOUDINARY_CLOUD_NAME,
+        api_key: CLOUDINARY_API_KEY,
+        api_secret: CLOUDINARY_API_SECRET,
+        secure: true, // Use HTTPS
+      });
+      console.log('✅ Cloudinary configured using individual variables');
+      console.log(`   Cloud Name: ${CLOUDINARY_CLOUD_NAME}`);
+      console.log(`   API Key: ${CLOUDINARY_API_KEY}`);
+      console.log(`   API Secret: ${CLOUDINARY_API_SECRET ? `${CLOUDINARY_API_SECRET.substring(0, 4)}...` : 'NOT SET'}`);
+    }
   } else {
     cloudinary.config({
       cloud_name: CLOUDINARY_CLOUD_NAME,

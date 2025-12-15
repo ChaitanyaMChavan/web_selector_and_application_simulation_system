@@ -15,6 +15,11 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
+    // Remove Content-Type header for FormData requests
+    // Axios will automatically set it with the correct boundary
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
     // You can add auth tokens here if needed
     return config;
   },

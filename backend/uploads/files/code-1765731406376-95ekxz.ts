@@ -1,8 +1,7 @@
 import express from 'express';
-import multer from 'multer';
 import { query } from '../config/database';
 import { authenticate, authorize } from '../config/auth';
-import { videoUpload, codingFileUpload, uploadsVideoPath, uploadsFilePath } from '../utils/upload';
+import { videoUpload, codingFileUpload } from '../utils/upload';
 import { uploadVideo, uploadFile } from '../utils/cloudinary';
 import fs from 'fs';
 
@@ -334,7 +333,7 @@ router.post(
     try {
       const user = (req as any).user;
       const { attemptId } = req.params;
-      const stepId = req.body?.stepId;
+      const { stepId } = req.body;
 
       if (!stepId || !req.file) {
         return res.status(400).json({ message: 'stepId and video file are required' });
@@ -376,57 +375,30 @@ router.post(
         return res.status(400).json({ message: 'Step is not a video step' });
       }
 
-      // Upload to Cloudinary or use local storage
-      let fileUrl: string;
-      let usingLocalStorage = false;
-      try {
-        const fileBuffer = fs.readFileSync(req.file.path);
-        console.log(`Attempting to upload video to Cloudinary: ${req.file.filename} (${fileBuffer.length} bytes)`);
-        const uploadResult = await uploadVideo(fileBuffer, req.file.filename);
-        fileUrl = uploadResult.secure_url;
-        console.log(`✅ Video uploaded to Cloudinary: ${fileUrl}`);
-        // Delete local file after successful Cloudinary upload
-        fs.unlinkSync(req.file.path);
-      } catch (cloudinaryError: any) {
-        // Fallback to local storage if Cloudinary fails
-        console.error('❌ Cloudinary upload failed:', cloudinaryError.message);
-        console.error('   Error details:', cloudinaryError);
-        console.warn('   Falling back to local storage');
-        fileUrl = `${uploadsVideoPath}/${req.file.filename}`;
-        usingLocalStorage = true;
-        // Note: We keep the local file since we're using it as fallback storage
-      }
+      // Upload to Cloudinary
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const uploadResult = await uploadVideo(fileBuffer, req.file.filename);
+      
+      // Delete local file after upload
+      fs.unlinkSync(req.file.path);
 
-      try {
-        // Upsert response with file URL
-        const result = await query(
-          `INSERT INTO projectweb.responses (attempt_id, step_id, answer)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (attempt_id, step_id)
-           DO UPDATE SET answer = $3, updated_at = CURRENT_TIMESTAMP
-           RETURNING id, attempt_id, step_id, answer, created_at, updated_at`,
-          [attemptId, stepId, fileUrl]
-        );
+      // Upsert response with Cloudinary URL
+      const result = await query(
+        `INSERT INTO projectweb.responses (attempt_id, step_id, answer)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (attempt_id, step_id)
+         DO UPDATE SET answer = $3, updated_at = CURRENT_TIMESTAMP
+         RETURNING id, attempt_id, step_id, answer, created_at, updated_at`,
+        [attemptId, stepId, uploadResult.secure_url]
+      );
 
-        const response = result.rows[0];
-        return res.json({
-          id: response.id,
-          attemptId: response.attempt_id,
-          stepId: response.step_id,
-          videoUrl: response.answer,
-        });
-      } catch (dbError: any) {
-        // If database insert fails and we're using local storage, clean up the file
-        if (usingLocalStorage && fs.existsSync(req.file.path)) {
-          try {
-            fs.unlinkSync(req.file.path);
-            console.log(`Cleaned up orphaned local file: ${req.file.filename}`);
-          } catch (unlinkError) {
-            console.error(`Failed to clean up local file: ${req.file.filename}`, unlinkError);
-          }
-        }
-        throw dbError;
-      }
+      const response = result.rows[0];
+      return res.json({
+        id: response.id,
+        attemptId: response.attempt_id,
+        stepId: response.step_id,
+        videoUrl: response.answer,
+      });
     } catch (error: any) {
       console.error('Upload video response error:', error);
       return res.status(500).json({ message: error.message || 'Internal server error' });
@@ -439,94 +411,15 @@ router.post(
   '/:attemptId/response/file',
   authenticate,
   authorize('APPLICANT'),
-  (req, res, next) => {
-    // Log request details before multer processes it
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Before multer:', {
-        contentType: req.headers['content-type'],
-        hasBody: !!req.body,
-        bodyKeys: Object.keys(req.body || {}),
-      });
-    }
-    
-    // Handle multer errors explicitly
-    codingFileUpload.single('file')(req, res, (err) => {
-      if (err) {
-        console.error('Multer error:', err);
-        if (err instanceof multer.MulterError) {
-          if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ message: 'File size exceeds 20MB limit' });
-          }
-          if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-            return res.status(400).json({ message: 'Unexpected file field. Expected field name: "file"' });
-          }
-          return res.status(400).json({ message: `Upload error: ${err.message}`, code: err.code });
-        }
-        return res.status(400).json({ message: err.message || 'File upload failed' });
-      }
-      
-      // Log after multer processes
-      if (process.env.NODE_ENV === 'development') {
-        console.log('After multer:', {
-          hasFile: !!req.file,
-          fileField: req.file?.fieldname,
-          fileName: req.file?.originalname,
-          bodyKeys: Object.keys(req.body || {}),
-        });
-      }
-      
-      next();
-    });
-  },
+  codingFileUpload.single('file'),
   async (req, res) => {
     try {
       const user = (req as any).user;
       const { attemptId } = req.params;
-      
-      // Try to get stepId from body (multer should parse form fields)
-      // Also check query params as fallback (though it should be in body)
-      const stepId = req.body?.stepId || req.query?.stepId;
+      const { stepId } = req.body;
 
-      // Debug logging in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('File upload request:', {
-          attemptId,
-          stepId,
-          hasFile: !!req.file,
-          body: req.body,
-          query: req.query,
-          fileField: req.file?.fieldname,
-          fileName: req.file?.originalname,
-        });
-      }
-
-      if (!stepId || stepId === 'undefined' || stepId === 'null') {
-        return res.status(400).json({ 
-          message: 'stepId is required',
-          received: { 
-            stepId, 
-            hasFile: !!req.file,
-            bodyKeys: Object.keys(req.body || {}),
-            body: req.body
-          }
-        });
-      }
-
-      if (!req.file) {
-        // Check if there are any files at all (multer might have parsed them but with wrong field name)
-        const files = (req as any).files;
-        return res.status(400).json({ 
-          message: 'file is required',
-          received: { 
-            stepId, 
-            hasFile: false,
-            contentType: req.headers['content-type'],
-            bodyKeys: Object.keys(req.body || {}),
-            hasFiles: !!files,
-            fileKeys: files ? Object.keys(files) : [],
-            hint: 'Make sure the file field is named "file" in the FormData'
-          }
-        });
+      if (!stepId || !req.file) {
+        return res.status(400).json({ message: 'stepId and file are required' });
       }
 
       const attemptResult = await query(
@@ -563,56 +456,29 @@ router.post(
         return res.status(400).json({ message: 'Step is not a coding step' });
       }
 
-      // Upload to Cloudinary or use local storage
-      let fileUrl: string;
-      let usingLocalStorage = false;
-      try {
-        const fileBuffer = fs.readFileSync(req.file.path);
-        console.log(`Attempting to upload file to Cloudinary: ${req.file.filename} (${fileBuffer.length} bytes)`);
-        const uploadResult = await uploadFile(fileBuffer, req.file.filename);
-        fileUrl = uploadResult.secure_url;
-        console.log(`✅ File uploaded to Cloudinary: ${fileUrl}`);
-        // Delete local file after successful Cloudinary upload
-        fs.unlinkSync(req.file.path);
-      } catch (cloudinaryError: any) {
-        // Fallback to local storage if Cloudinary fails
-        console.error('❌ Cloudinary upload failed:', cloudinaryError.message);
-        console.error('   Error details:', cloudinaryError);
-        console.warn('   Falling back to local storage');
-        fileUrl = `${uploadsFilePath}/${req.file.filename}`;
-        usingLocalStorage = true;
-        // Note: We keep the local file since we're using it as fallback storage
-      }
+      // Upload to Cloudinary
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const uploadResult = await uploadFile(fileBuffer, req.file.filename);
+      
+      // Delete local file after upload
+      fs.unlinkSync(req.file.path);
 
-      try {
-        const result = await query(
-          `INSERT INTO projectweb.responses (attempt_id, step_id, answer)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (attempt_id, step_id)
-           DO UPDATE SET answer = $3, updated_at = CURRENT_TIMESTAMP
-           RETURNING id, attempt_id, step_id, answer, created_at, updated_at`,
-          [attemptId, stepId, fileUrl]
-        );
+      const result = await query(
+        `INSERT INTO projectweb.responses (attempt_id, step_id, answer)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (attempt_id, step_id)
+         DO UPDATE SET answer = $3, updated_at = CURRENT_TIMESTAMP
+         RETURNING id, attempt_id, step_id, answer, created_at, updated_at`,
+        [attemptId, stepId, uploadResult.secure_url]
+      );
 
-        const response = result.rows[0];
-        return res.json({
-          id: response.id,
-          attemptId: response.attempt_id,
-          stepId: response.step_id,
-          fileUrl: response.answer,
-        });
-      } catch (dbError: any) {
-        // If database insert fails and we're using local storage, clean up the file
-        if (usingLocalStorage && fs.existsSync(req.file.path)) {
-          try {
-            fs.unlinkSync(req.file.path);
-            console.log(`Cleaned up orphaned local file: ${req.file.filename}`);
-          } catch (unlinkError) {
-            console.error(`Failed to clean up local file: ${req.file.filename}`, unlinkError);
-          }
-        }
-        throw dbError;
-      }
+      const response = result.rows[0];
+      return res.json({
+        id: response.id,
+        attemptId: response.attempt_id,
+        stepId: response.step_id,
+        fileUrl: response.answer,
+      });
     } catch (error: any) {
       console.error('Upload coding file error:', error);
       return res.status(500).json({ message: error.message || 'Internal server error' });

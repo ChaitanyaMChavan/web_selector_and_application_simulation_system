@@ -41,8 +41,18 @@ app.use(cors({
 }));
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' })); // Limit request body size
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Skip body parsing for multipart/form-data (let multer handle it)
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) {
+    // Skip body parsing for multipart requests - multer will handle it
+    return next();
+  }
+  // For non-multipart requests, use the body parsers
+  express.json({ limit: '10mb' })(req, res, () => {
+    express.urlencoded({ extended: true, limit: '10mb' })(req, res, next);
+  });
+});
 app.use(cookieParser());
 
 // Static files for uploads

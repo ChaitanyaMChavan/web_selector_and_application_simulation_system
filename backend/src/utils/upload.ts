@@ -38,10 +38,21 @@ export const codingFileUpload = multer({
     filename: (_req, file, cb) => cb(null, uniqueName('code', file.originalname)),
   }),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-  fileFilter: (_req, file, cb) => {
+  fileFilter: (req, file, cb) => {
+    // Log file info in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('File filter check:', {
+        fieldname: file.fieldname,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+      });
+    }
     // Allow common text/code types; fallback to allow everything but block executables
     const blocked = ['application/x-msdownload', 'application/x-msdos-program'];
-    if (blocked.includes(file.mimetype)) return cb(new Error('Executable files are not allowed'));
+    if (blocked.includes(file.mimetype)) {
+      return cb(new Error('Executable files are not allowed'));
+    }
     cb(null, true);
   },
 });

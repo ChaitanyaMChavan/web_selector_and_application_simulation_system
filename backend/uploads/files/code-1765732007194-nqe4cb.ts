@@ -15,31 +15,6 @@ const loginAttempts: Record<
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-
-// Cleanup old login attempt entries periodically to prevent memory leak
-setInterval(() => {
-  const now = Date.now();
-  const keysToDelete: string[] = [];
-  
-  for (const [email, attemptInfo] of Object.entries(loginAttempts)) {
-    // Remove entries that are:
-    // 1. Not locked AND older than the window period
-    // 2. Locked but the lock has expired
-    const isExpired = !attemptInfo.lockedUntil && (now - attemptInfo.firstAttempt > WINDOW_MS);
-    const lockExpired = attemptInfo.lockedUntil && now >= attemptInfo.lockedUntil;
-    
-    if (isExpired || lockExpired) {
-      keysToDelete.push(email);
-    }
-  }
-  
-  keysToDelete.forEach(key => delete loginAttempts[key]);
-  
-  if (keysToDelete.length > 0) {
-    console.log(`Cleaned up ${keysToDelete.length} expired login attempt entries`);
-  }
-}, CLEANUP_INTERVAL_MS);
 
 // POST /api/auth/signup/applicant
 router.post('/signup/applicant', signupValidation, async (req: express.Request, res: express.Response) => {
@@ -212,12 +187,7 @@ router.get('/me', authenticate, async (req, res) => {
 
 // POST /api/auth/logout
 router.post('/logout', (req, res) => {
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-  });
+  res.clearCookie('token');
   return res.json({ message: 'Logged out successfully' });
 });
 

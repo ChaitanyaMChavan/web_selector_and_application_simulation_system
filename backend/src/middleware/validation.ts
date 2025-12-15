@@ -72,13 +72,26 @@ export const validateText = (field: string, minLength: number = 1, maxLength: nu
 
 // Integer validation
 export const validateInteger = (field: string, min?: number, max?: number) => {
-  let chain = body(field).isInt().withMessage(`${field} must be an integer`);
+  const options: { min?: number; max?: number } = {};
   if (min !== undefined) {
-    chain = chain.isInt({ min }).withMessage(`${field} must be at least ${min}`);
+    options.min = min;
   }
   if (max !== undefined) {
-    chain = chain.isInt({ max }).withMessage(`${field} must be at most ${max}`);
+    options.max = max;
   }
+  
+  let chain = body(field).isInt(options);
+  
+  if (min !== undefined && max !== undefined) {
+    chain = chain.withMessage(`${field} must be between ${min} and ${max}`);
+  } else if (min !== undefined) {
+    chain = chain.withMessage(`${field} must be at least ${min}`);
+  } else if (max !== undefined) {
+    chain = chain.withMessage(`${field} must be at most ${max}`);
+  } else {
+    chain = chain.withMessage(`${field} must be an integer`);
+  }
+  
   return chain;
 };
 

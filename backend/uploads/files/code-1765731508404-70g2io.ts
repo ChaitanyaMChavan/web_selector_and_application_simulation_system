@@ -262,7 +262,7 @@ router.get('/stats', authenticate, authorize('ADMIN'), async (req, res) => {
 });
 
 // GET /api/admin/analytics - Analytics data
-router.get('/analytics', authenticate, authorize('ADMIN'), async (req, res) => {
+router.get('/analytics', async (req, res) => {
   try {
     // Recent attempts (last 30 days)
     const recentAttempts = await query(
