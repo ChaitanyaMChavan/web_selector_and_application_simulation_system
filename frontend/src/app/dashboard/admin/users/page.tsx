@@ -69,8 +69,11 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [formData, setFormData] = useState<{
     email: string;
     password: string;
@@ -187,18 +190,24 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Are you sure you want to delete this user?")) {
-      return;
-    }
+  const handleDeleteClick = (userId: string) => {
+    setDeletingUserId(userId);
+    setDeleteDialogOpen(true);
+  };
 
+  const handleDeleteUser = async () => {
+    if (!deletingUserId) return;
+
+    setDeleting(true);
     try {
-      await api.delete(`/admin/users/${userId}`);
+      await api.delete(`/admin/users/${deletingUserId}`);
       toast({
         title: "User deleted",
         description: "The user has been deleted successfully",
         variant: "success",
       });
+      setDeleteDialogOpen(false);
+      setDeletingUserId(null);
       fetchUsers();
     } catch (error: any) {
       toast({
@@ -206,6 +215,8 @@ export default function AdminUsersPage() {
         description: error.response?.data?.message || "Something went wrong",
         variant: "destructive",
       });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -403,7 +414,7 @@ export default function AdminUsersPage() {
                                 variant="ghost"
                                 size="icon"
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteUser(user.id)}
+                                onClick={() => handleDeleteClick(user.id)}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -498,6 +509,44 @@ export default function AdminUsersPage() {
                   </>
                 ) : (
                   "Update User"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete User</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this user? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setDeletingUserId(null);
+                }}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteUser}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete User"
                 )}
               </Button>
             </DialogFooter>
